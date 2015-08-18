@@ -15,7 +15,7 @@ use webtoucher\amqp\components\Amqp;
 use webtoucher\amqp\components\AmqpInterpreter;
 use webtoucher\amqp\components\AmpqInterpreterInterface;
 use webtoucher\commands\Controller;
-
+use Yii;
 
 /**
  * AMQP listener controller.
@@ -34,6 +34,14 @@ class AmqpListenerController extends AmqpConsoleController
 
     public function actionRun($routingKey = '#', $type = Amqp::TYPE_TOPIC)
     {
+        if (isset($this->interpreters[$this->exchange])) {
+            $config = $this->interpreters[$this->exchange];
+            if (is_array($config)) {
+                // class is not option for 
+                unset($config['class']);
+                Yii::configure($this->amqp, $config);
+            }
+        }
         $this->amqp->listen($this->exchange, $routingKey, [$this, 'callback'], $type);
     }
 
@@ -44,22 +52,23 @@ class AmqpListenerController extends AmqpConsoleController
 
         if (!isset($this->interpreters[$this->exchange])) {
             $interpreter = $this;
-        } elseif (class_exists($this->interpreters[$this->exchange])) {
-            $interpreter = new $this->interpreters[$this->exchange];
+        } elseif (is_array($this->interpreters[$this->exchange]) && !empty($this->interpreters[$this->exchange]['class'])) {
+            $class = $this->interpreters[$this->exchange]['class'];
+        } else {
+            $class = $this->interpreters[$this->exchange];
+        }
+
+        if (class_exists($class)) {
+            $interpreter = new $class;
             if (!$interpreter instanceof AmqpInterpreter) {
-                throw new Exception(sprintf("Class '%s' is not correct interpreter class.", $this->interpreters[$this->exchange]));
+                throw new Exception(sprintf("Class '%s' is not correct interpreter class.", $class));
             }
         } else {
-            throw new Exception(sprintf("Interpreter class '%s' was not found.", $this->interpreters[$this->exchange]));
+            throw new Exception(sprintf("Interpreter class '%s' was not found.", $class));
         }
 
         if (method_exists($interpreter, $method)) {
-            $info = [
-                'exchange' => $msg->get('exchange'),
-                'routing_key' => $msg->get('routing_key'),
-                'reply_to' => $msg->has('reply_to') ? $msg->get('reply_to') : null,
-            ];
-            $interpreter->$method(Json::decode($msg->body, true), $info);
+            $interpreter->$method(Json::decode($msg->body, true), $msg);
         } else {
             if (!isset($this->interpreters[$this->exchange])) {
                 $interpreter = new AmqpInterpreter();

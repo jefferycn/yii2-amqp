@@ -67,6 +67,22 @@ class Amqp extends Component
     public $vhost = '/';
 
     /**
+     * if it is set to true, then exchange will be bind to a queue
+     * which will using round-robin dispatching
+     *
+     * @var boolean
+     */
+    public $workQueue = false;
+
+    /**
+     * if ack is enabled, you need to remember not miss call
+     * basic_ack when message is handled.
+     *
+     * @var boolean
+     */
+    public $ack = false;
+
+    /**
      * @inheritdoc
      */
     public function init()
@@ -122,10 +138,16 @@ class Amqp extends Component
      */
     public function send($exchange, $routing_key, $message, $type = self::TYPE_TOPIC)
     {
-        $message = $this->prepareMessage($message);
+        $message = $this->prepareMessage($message, [
+            'delivery_mode' => 2,
+        ]);
         if ($type == self::TYPE_TOPIC) {
             $this->channel->exchange_declare($exchange, $type, false, true, false);
         }
+        if ($this->workQueue) {
+            $this->channel->queue_declare($routing_key, false, true, false, false);
+        }
+
         $this->channel->basic_publish($message, $exchange, $routing_key);
     }
 
@@ -171,12 +193,24 @@ class Amqp extends Component
      */
     public function listen($exchange, $routing_key, $callback, $type = self::TYPE_TOPIC)
     {
-        list ($queueName) = $this->channel->queue_declare();
-        if ($type == Amqp::TYPE_DIRECT) {
-            $this->channel->exchange_declare($exchange, $type, false, true, false);
+        if ($this->workQueue) {
+            list ($queueName) = $this->channel->queue_declare($routing_key, false, true, false, false);
+        } else {
+            list ($queueName) = $this->channel->queue_declare();
         }
+
+        $this->channel->exchange_declare($exchange, $type, false, true, false);
         $this->channel->queue_bind($queueName, $exchange, $routing_key);
-        $this->channel->basic_consume($queueName, '', false, true, false, false, $callback);
+
+        if ($this->workQueue) {
+            $this->channel->basic_qos(null, 1, null);
+        }
+
+        if ($this->ack) {
+            $this->channel->basic_consume($queueName, '', false, false, false, false, $callback);
+        } else {
+            $this->channel->basic_consume($queueName, '', false, true, false, false, $callback);
+        }
 
         while (count($this->channel->callbacks)) {
             $this->channel->wait();
@@ -199,9 +233,12 @@ class Amqp extends Component
         if (empty($message)) {
             throw new Exception('AMQP message can not be empty');
         }
-        if (is_array($message) || is_object($message)) {
-            $message = Json::encode($message);
+        if ($message instanceof AMQPMessage) {
+            return $message;
         }
+        $properties['content_type'] = 'application/json';
+        $message = Json::encode($message);
+
         return new AMQPMessage($message, $properties);
     }
 }

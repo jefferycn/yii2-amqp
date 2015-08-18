@@ -1,7 +1,7 @@
 yii2-amqp
 =========
 
-AMQP extension wrapper to communicate with RabbitMQ server. Based on [videlalvaro/php-amqplib](https://github.com/videlalvaro/php-amqplib).
+AMQP extension wrapper to communicate with RabbitMQ server. Based on [webtoucher/yii2-amqp](https://github.com/webtoucher/yii2-amqp) and [videlalvaro/php-amqplib](https://github.com/videlalvaro/php-amqplib).
 
 ## Installation
 
@@ -10,13 +10,13 @@ The preferred way to install this extension is through [composer](http://getcomp
 Either run
 
 ```
-$ php composer.phar require webtoucher/yii2-amqp "*"
+$ php composer.phar require jefferycn/yii2-amqp "*"
 ```
 
 or add
 
 ```
-"webtoucher/yii2-amqp": "*"
+"jefferycn/yii2-amqp": "*"
 ```
 
 to the ```require``` section of your `composer.json` file.
@@ -45,6 +45,11 @@ return [
             'class' => 'webtoucher\amqp\controllers\AmqpListenerController',
             'interpreters' => [
                 'my-exchange' => 'app\components\RabbitInterpreter', // interpreters for each exchange
+                'round-robin' => [
+                    'app\components\RabbitInterpreter',
+                    'workQueue' => true,
+                    'ack' => true,
+                ]
             ],
             'exchange' => 'my-exchange', // default exchange
         ],
@@ -69,12 +74,13 @@ class RabbitInterpreter extends AmqpInterpreter
     /**
      * Interprets AMQP message with routing key 'hello_world'.
      *
-     * @param array $message
+     * @param mixed $body
+     * @param AMQPMessage $message
      */
-    public function readHelloWorld($message)
+    public function readHelloWorld($body, $message)
     {
         // todo: write message handler
-        $this->log(print_r($message, true));
+        $this->log(print_r($body, true));
     }
 }
 ```
